@@ -20,12 +20,13 @@ function initViewer(root) {
   const canvas = root.querySelector("canvas");
   const stage = root.querySelector(".stage");
   let renderer;
-  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); }
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance" }); }
   catch { root.querySelector(".fallback").classList.remove("hide"); root.querySelector(".hint").classList.add("hide"); return; }
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.autoUpdate = false; // shadows only change when the model moves, not the camera
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 4 / 3, 0.05, 50);
@@ -42,12 +43,12 @@ function initViewer(root) {
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
   const frameMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.45, metalness: 0.02 });
-  const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xcfe3ee, roughness: 0.05, metalness: 0, transmission: 0.0, transparent: true, opacity: 0.32, side: THREE.DoubleSide });
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0xcfe3ee, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false });
   const metalMat = new THREE.MeshStandardMaterial({ color: 0x9a9da1, roughness: 0.3, metalness: 0.9 });
   const sealMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xebe7e1, roughness: 0.95 });
 
-  const box = (w, h, d, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; return m; };
+  const box = (w, h, d, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.castShadow = true; return m; };
   // rectangular frame (4 bars) centred on 0,0
   function ring(w, h, t, d, mat) {
     const g = new THREE.Group();
@@ -75,7 +76,7 @@ function initViewer(root) {
     g.add(box(sideW, h, d, wallMat, -ow / 2 - sideW / 2, h / 2, -0.03), box(sideW, h, d, wallMat, ow / 2 + sideW / 2, h / 2, -0.03));
     if (top > 0) g.add(box(ow, top, d, wallMat, 0, h - top / 2, -0.03));
     if (bot > 0) g.add(box(ow, bot, d, wallMat, 0, bot / 2, -0.03));
-    g.traverse((m) => { if (m.isMesh) m.castShadow = false; });
+    g.traverse((m) => { if (m.isMesh) { m.castShadow = false; m.receiveShadow = true; } });
     return g;
   }
 
@@ -150,8 +151,9 @@ function initViewer(root) {
       door.add(handle(slabW / 2 - 0.08, -0.05, -0.05, false));
       pivots.push({ obj: p, axis: "y", from: 0, to: -1.2 });
     }
-    model.traverse((m) => { if (m.isMesh && m.material === frameMat) m.castShadow = true; });
+    model.traverse((m) => { if (m.isMesh) m.castShadow = m.material === frameMat; });
     scene.add(model);
+    renderer.shadowMap.needsUpdate = true;
     const d = root.querySelector("[data-desc]"); if (d) d.textContent = DESC[kind] || "";
     const openBtn = root.querySelector('[data-act="open"]');
     if (openBtn) { openBtn.disabled = !pivots.length; openBtn.textContent = pivots.length ? "Open it" : "Doesn't open"; openBtn.setAttribute("aria-pressed", "false"); }
@@ -202,9 +204,11 @@ function initViewer(root) {
       camera.position.lerpVectors(camAnim.p0, camAnim.p1, k); controls.target.lerpVectors(camAnim.t0, camAnim.t1, k);
       if (t >= 1) camAnim = null;
     }
-    controls.update();
+    controls.update();                      // may fire "change" -> kick(), which can schedule the next frame
+    if (anim) renderer.shadowMap.needsUpdate = true;
     renderer.render(scene, camera);
-    if (anim || camAnim || now - lastChange < 600) raf = requestAnimationFrame(frame);
+    // only ever one loop: schedule the next frame unless kick() already did
+    if (!raf && (anim || camAnim || now - lastChange < 600)) raf = requestAnimationFrame(frame);
   }
   controls.addEventListener("change", kick);
   controls.addEventListener("start", kick);

@@ -1,0 +1,7 @@
+# Preview: kept out of search until launch. At launch use:
+# User-agent: *
+# Allow: /
+# Disallow: /staff.html
+# Sitemap: https://www.clearwindowsanddoors.com/sitemap.xml
+User-agent: *
+Disallow: /
